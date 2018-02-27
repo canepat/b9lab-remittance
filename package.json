@@ -1,0 +1,32 @@
+{
+  "name": "remittance",
+  "version": "1.0.0",
+  "description": "Remittance Smart Contract - B9Lab Course Practice",
+  "main": "truffle.js",
+  "directories": {
+    "test": "test"
+  },
+  "scripts": {
+    "test": "truffle test"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/canepat/b9lab-remittance.git"
+  },
+  "keywords": [
+    "ethereum",
+    "b9lab",
+    "smart",
+    "contract"
+  ],
+  "author": "Tullio Canepa",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/canepat/b9lab-remittance/issues"
+  },
+  "homepage": "https://github.com/canepat/b9lab-remittance#readme",
+  "dependencies": {
+    "bluebird": "^3.5.1",
+    "bluebird-retry": "^0.11.0"
+  }
+}
