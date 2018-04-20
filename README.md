@@ -31,5 +31,4 @@ The following implementation choices has been made not explicitly required by sp
 
 ### Limitations:
 The following limitations currently apply:
-* no check for arithmetic overflow
 * no web page

@@ -1,6 +1,6 @@
 var Remittance = artifacts.require("./Remittance.sol");
 
-module.exports = function(deployer) {
+module.exports = function(deployer, network, accounts) {
     let owner = accounts[1];
     const remittancePercentage = 2;
     const maxBlockDuration = 240;

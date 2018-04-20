@@ -1,97 +1,137 @@
 pragma solidity ^0.4.13;
 
-contract Remittance {
-    event LogCreation(address indexed caller, uint256 indexed remittancePercentage, uint256 indexed maxBlockDuration);
-    event LogDeposit(address caller, bytes32 indexed compoundHash, address indexed exchange, uint256 indexed blockDuration);
-    event LogWithdraw(address caller, bytes32 indexed exchangeHash, bytes32 indexed beneficiaryHash, uint256 remittanceCommission, uint256 indexed netAmount);
-    event LogClosed(address indexed caller);
+import "./Pausable.sol";
+import "./SafeMath.sol";
+
+contract Remittance is Pausable {
+    using SafeMath for uint256;
+
+    event LogCreation(
+        address indexed caller,
+        uint256 indexed ownerCommission,
+        uint256 indexed maxBlockDuration
+    );
+    event LogDeposit(
+        address caller,
+        bytes32 indexed compoundHash,
+        //-address indexed exchange,
+        uint256 indexed blockDuration,
+        uint256 amount
+    );
+    event LogWithdraw(
+        address caller,
+        bytes32 indexed exchangeHash,
+        bytes32 indexed beneficiaryHash,
+        uint256 ownerCommission,
+        uint256 indexed netAmount
+    );
+    event LogWithdrawFees(
+        address indexed caller,
+        uint256 indexed fees
+    );
+    event LogClaim(
+        address indexed caller,
+        bytes32 indexed compoundHash,
+        uint256 indexed amount
+    );
 
     struct Payment {
         address payer;
-        address exchange;
+        //address exchange;
         uint256 amount;
         uint256 blockLimit;
-        bool available;
     }
 
-    address public owner;
     uint256 public maxBlockDuration;
-    uint256 public remittancePercentage;
+    uint256 public ownerCommission;
     mapping(bytes32 => Payment) public payments;
-    mapping(address => uint256) public balanceOf;
-    bool public closed;
+    uint256 public raisedFees;
 
-    modifier onlyOwner {
-        require(msg.sender == owner);
-        _;
-    }
-
-    modifier notClosed {
-        require(!closed);
-        _;
-    }
-
-    function Remittance(uint256 _remittancePercentage, uint256 _maxBlockDuration) {
-        require(0 < _remittancePercentage && _remittancePercentage < 100);
+    function Remittance(uint256 _ownerCommission, uint256 _maxBlockDuration) {
         require(_maxBlockDuration != 0);
 
-        remittancePercentage = _remittancePercentage;
+        ownerCommission = _ownerCommission;
         maxBlockDuration = _maxBlockDuration;
 
-        owner = msg.sender;
-
-        LogCreation(msg.sender, _remittancePercentage, _maxBlockDuration);
+        LogCreation(msg.sender, _ownerCommission, _maxBlockDuration);
     }
 
-    function close() public notClosed onlyOwner {
-        closed = true;
-        
-        LogClosed(msg.sender);
-
-        selfdestruct(owner); // TODO: check spec: necessary?!?
+    function hash(bytes32 hash1, bytes32 hash2, address exchange)
+    public constant returns(bytes32 compoundHash)
+    {
+        return keccak256(hash1, hash2, exchange);
     }
 
-    function hash(bytes32 hash1, bytes32 hash2) public constant returns(bytes32 compoundHash) {
-        return keccak256(hash1, hash2);
-    }
-
-    function deposit(bytes32 compoundHash, address exchange, uint256 blockDuration) public notClosed payable {
-        require(exchange != address(0));
+    function deposit(bytes32 compoundHash, /*address exchange, */uint256 blockDuration)
+    public whenNotPaused payable
+    {
+        require(compoundHash != 0);
+        //require(exchange != address(0));
         require(0 < blockDuration && blockDuration <= maxBlockDuration);
         require(msg.value != 0);
 
-        Payment storage newPayment = payments[compoundHash];
+        Payment storage selectedPayment = payments[compoundHash];
+        address payer = selectedPayment.payer;
+        require(payer == 0 || payer == msg.sender);
 
-        newPayment.payer = msg.sender;
-        newPayment.exchange = exchange;
-        newPayment.amount = msg.value;
-        newPayment.blockLimit = block.number + blockDuration;
-        newPayment.available = true;
+        uint256 amount = selectedPayment.amount.add(msg.value);
 
-        LogDeposit(msg.sender, compoundHash, exchange, blockDuration);
+        selectedPayment.payer = msg.sender;
+        //selectedPayment.exchange = exchange;
+        selectedPayment.amount = amount;
+        selectedPayment.blockLimit = block.number + blockDuration;
+
+        LogDeposit(msg.sender, compoundHash, /*exchange,*/ blockDuration, amount);
     }
 
-    function withdraw(bytes32 exchangeHash, bytes32 beneficiaryHash) public notClosed {
-        bytes32 compoundHash = hash(exchangeHash, beneficiaryHash);
+    function withdraw(bytes32 exchangeHash, bytes32 beneficiaryHash) public whenNotPaused {
+        bytes32 compoundHash = hash(exchangeHash, beneficiaryHash, msg.sender);
         Payment storage selectedPayment = payments[compoundHash];
 
-        require(msg.sender == selectedPayment.exchange);
+        //require(msg.sender == selectedPayment.exchange);
         require(block.number <= selectedPayment.blockLimit);
-        require(selectedPayment.available);
-
+        
         uint256 amount = selectedPayment.amount;
-        uint256 remittanceCommission = amount / remittancePercentage;
-        uint256 netAmount = amount - remittanceCommission;
+        require(amount > 0);
+        
+        selectedPayment.amount = 0;
 
-        selectedPayment.available = false;
+        raisedFees = raisedFees.add(ownerCommission);
 
-        owner.transfer(remittanceCommission);
-        selectedPayment.exchange.transfer(netAmount);
+        uint256 netAmount = amount.sub(ownerCommission);
 
-        LogWithdraw(msg.sender, exchangeHash, beneficiaryHash, remittanceCommission, netAmount);
+        LogWithdraw(msg.sender, exchangeHash, beneficiaryHash, ownerCommission, netAmount);
+
+        //selectedPayment.exchange.transfer(netAmount);
+        msg.sender.transfer(netAmount);
     }
 
-    function () public {
-        revert();
+    function withdrawFees() public onlyOwner whenNotPaused {
+        uint256 feeAmount = raisedFees;
+        require(feeAmount > 0);
+
+        raisedFees = 0;
+
+        LogWithdrawFees(msg.sender, feeAmount);
+
+        owner.transfer(feeAmount);
+    }
+
+    function claim(bytes32 compoundHash) public whenNotPaused {
+        require(compoundHash != 0);
+
+        Payment storage selectedPayment = payments[compoundHash];
+
+        require(msg.sender == selectedPayment.payer);
+        require(block.number > selectedPayment.blockLimit);
+        
+        uint256 amount = selectedPayment.amount;
+        require(amount > 0);
+
+        selectedPayment.amount = 0;
+
+        LogClaim(msg.sender, compoundHash, amount);
+
+        msg.sender.transfer(amount);
     }
 }
