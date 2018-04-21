@@ -6,15 +6,19 @@ import "./SafeMath.sol";
 contract Remittance is Pausable {
     using SafeMath for uint256;
 
-    event LogCreation(
+    event LogRemittanceCreation(
         address indexed caller,
         uint256 indexed ownerCommission,
         uint256 indexed maxBlockDuration
     );
+    event LogOwnerCommissionChanged(
+        address indexed caller,
+        uint256 indexed oldCommission,
+        uint256 indexed newCommission
+    );
     event LogDeposit(
         address caller,
         bytes32 indexed compoundHash,
-        //-address indexed exchange,
         uint256 indexed blockDuration,
         uint256 amount
     );
@@ -37,7 +41,6 @@ contract Remittance is Pausable {
 
     struct Payment {
         address payer;
-        //address exchange;
         uint256 amount;
         uint256 blockLimit;
     }
@@ -53,20 +56,28 @@ contract Remittance is Pausable {
         ownerCommission = _ownerCommission;
         maxBlockDuration = _maxBlockDuration;
 
-        LogCreation(msg.sender, _ownerCommission, _maxBlockDuration);
+        LogRemittanceCreation(msg.sender, _ownerCommission, _maxBlockDuration);
     }
 
     function hash(bytes32 hash1, bytes32 hash2, address exchange)
     public constant returns(bytes32 compoundHash)
     {
-        return keccak256(hash1, hash2, exchange);
+        return keccak256(this, hash1, hash2, exchange);
     }
 
-    function deposit(bytes32 compoundHash, /*address exchange, */uint256 blockDuration)
+    function setOwnerCommission(uint256 newOwnerCommission) public whenNotPaused onlyOwner {
+        uint256 oldOwnerCommission = ownerCommission;
+        require(newOwnerCommission != oldOwnerCommission);
+
+        ownerCommission = newOwnerCommission;
+
+        LogOwnerCommissionChanged(msg.sender, oldOwnerCommission, newOwnerCommission);
+    }
+
+    function deposit(bytes32 compoundHash, uint256 blockDuration)
     public whenNotPaused payable
     {
         require(compoundHash != 0);
-        //require(exchange != address(0));
         require(0 < blockDuration && blockDuration <= maxBlockDuration);
         require(msg.value != 0);
 
@@ -75,20 +86,19 @@ contract Remittance is Pausable {
         require(payer == 0 || payer == msg.sender);
 
         uint256 amount = selectedPayment.amount.add(msg.value);
+        require(amount > ownerCommission);
 
         selectedPayment.payer = msg.sender;
-        //selectedPayment.exchange = exchange;
         selectedPayment.amount = amount;
         selectedPayment.blockLimit = block.number + blockDuration;
 
-        LogDeposit(msg.sender, compoundHash, /*exchange,*/ blockDuration, amount);
+        LogDeposit(msg.sender, compoundHash, blockDuration, amount);
     }
 
     function withdraw(bytes32 exchangeHash, bytes32 beneficiaryHash) public whenNotPaused {
         bytes32 compoundHash = hash(exchangeHash, beneficiaryHash, msg.sender);
         Payment storage selectedPayment = payments[compoundHash];
 
-        //require(msg.sender == selectedPayment.exchange);
         require(block.number <= selectedPayment.blockLimit);
         
         uint256 amount = selectedPayment.amount;
@@ -102,7 +112,6 @@ contract Remittance is Pausable {
 
         LogWithdraw(msg.sender, exchangeHash, beneficiaryHash, ownerCommission, netAmount);
 
-        //selectedPayment.exchange.transfer(netAmount);
         msg.sender.transfer(netAmount);
     }
 
