@@ -317,6 +317,26 @@ contract('Remittance', function(accounts) {
                     );
                 });
         });
+        it("should fail if one payer uses the compound hash used by another one", function() {
+            this.slow(slowDuration);
+
+            let compoundHash;
+            return instance.hash(EXCHANGE_HASH, BENEFICIARY_HASH, exchange)
+                .then(_compoundHash => {
+                    compoundHash = _compoundHash;
+                    return instance.deposit(compoundHash, blockDuration,
+                        { from: payer, gas: MAX_GAS, value: money });
+                })
+                .then(() => {
+                    return web3.eth.expectedExceptionPromise(
+                        function() {
+                            return instance.deposit(compoundHash, blockDuration,
+                                { from: owner, gas: MAX_GAS, value: money });
+                        },
+                        MAX_GAS
+                    );
+                }); 
+        });
         it("should fail if money sent is not greater than owner commission", function() {
             this.slow(slowDuration);
 
@@ -331,10 +351,202 @@ contract('Remittance', function(accounts) {
                     );
                 });
         });
-        it.skip("should fail if payer is different from the ", function() {
+        it("should save payment information", function() {
             this.slow(slowDuration);
+
+            let compoundHash, blockNumber;
+            return instance.hash(EXCHANGE_HASH, BENEFICIARY_HASH, exchange)
+                .then(_compoundHash => {
+                    compoundHash = _compoundHash;
+                    return instance.deposit(compoundHash, blockDuration,
+                        { from: payer, gas: MAX_GAS, value: money });
+                })
+                .then(() => web3.eth.getBlockPromise('latest'))
+                .then(block => {
+                    blockNumber = block.number;
+                    return instance.payments(compoundHash);
+                })
+                .then(payment => {
+                    assert.strictEqual(payment[0], payer, "Payer not saved");
+                    assert.strictEqual(payment[1].toNumber(), money, "Money amount not saved");
+                    const blockLimit = blockNumber + blockDuration;
+                    assert.strictEqual(payment[2].toNumber(), blockLimit, "Block limit not saved");
+                }); 
         });
         it.skip("should emit LogDeposit event", function() {
+            this.slow(slowDuration);
+        });
+    });
+
+    describe("#withdraw(exchangeHash, beneficiaryHash)", function() {
+        const blockDuration = 1;
+        const money = OWNER_COMMISSION + 1;
+
+        it("should fail if called when paused", function() {
+            this.slow(slowDuration);
+
+            return instance.hash(EXCHANGE_HASH, BENEFICIARY_HASH, exchange)
+                .then(_compoundHash => instance.deposit(_compoundHash, blockDuration,
+                    { from: payer, gas: MAX_GAS, value: money }))
+                .then(() => instance.pause({ from: owner, gas: MAX_GAS }))
+                .then(() => {
+                    return web3.eth.expectedExceptionPromise(
+                        function() {
+                            return instance.withdraw(EXCHANGE_HASH, BENEFICIARY_HASH,
+                                { from: exchange, gas: MAX_GAS });
+                        },
+                        MAX_GAS
+                    );
+                });
+        });
+        it("should fail if exchangeHash is zero", function() {
+            this.slow(slowDuration);
+
+            return instance.hash(EXCHANGE_HASH, BENEFICIARY_HASH, exchange)
+                .then(_compoundHash => instance.deposit(_compoundHash, blockDuration,
+                    { from: payer, gas: MAX_GAS, value: money }))
+                .then(() => {
+                    return web3.eth.expectedExceptionPromise(
+                        function() {
+                            return instance.withdraw(0, BENEFICIARY_HASH, { from: exchange, gas: MAX_GAS });
+                        },
+                        MAX_GAS
+                    );
+                });
+        });
+        it("should fail if exchangeHash is wrong", function() {
+            this.slow(slowDuration);
+
+            return instance.hash(EXCHANGE_HASH, BENEFICIARY_HASH, exchange)
+                .then(_compoundHash => instance.deposit(_compoundHash, blockDuration,
+                    { from: payer, gas: MAX_GAS, value: money }))
+                .then(() => {
+                    return web3.eth.expectedExceptionPromise(
+                        function() {
+                            return instance.withdraw("aaa", BENEFICIARY_HASH, { from: exchange, gas: MAX_GAS });
+                        },
+                        MAX_GAS
+                    );
+                });
+        });
+        it("should fail if beneficiaryHash is zero", function() {
+            this.slow(slowDuration);
+
+            return instance.hash(EXCHANGE_HASH, BENEFICIARY_HASH, exchange)
+                .then(_compoundHash => instance.deposit(_compoundHash, blockDuration,
+                    { from: payer, gas: MAX_GAS, value: money }))
+                .then(() => {
+                    return web3.eth.expectedExceptionPromise(
+                        function() {
+                            return instance.withdraw(EXCHANGE_HASH, 0, { from: exchange, gas: MAX_GAS });
+                        },
+                        MAX_GAS
+                    );
+                });
+        });
+        it("should fail if beneficiaryHash is wrong", function() {
+            this.slow(slowDuration);
+
+            return instance.hash(EXCHANGE_HASH, BENEFICIARY_HASH, exchange)
+                .then(_compoundHash => instance.deposit(_compoundHash, blockDuration,
+                    { from: payer, gas: MAX_GAS, value: money }))
+                .then(() => {
+                    return web3.eth.expectedExceptionPromise(
+                        function() {
+                            return instance.withdraw(EXCHANGE_HASH, "aaa", { from: exchange, gas: MAX_GAS });
+                        },
+                        MAX_GAS
+                    );
+                });
+        });
+        it("should fail if payment block limit is over", function() {
+            this.slow(slowDuration);
+
+            return instance.hash(EXCHANGE_HASH, BENEFICIARY_HASH, exchange)
+                .then(_compoundHash => instance.deposit(_compoundHash, blockDuration,
+                    { from: payer, gas: MAX_GAS, value: money }))
+                .then(() => web3.eth.getBlockPromise('latest'))
+                .then(latestBlock => web3.eth.getPastBlock(latestBlock.number + blockDuration))
+                .then(() => {
+                    return web3.eth.expectedExceptionPromise(
+                        function() {
+                            return instance.withdraw(EXCHANGE_HASH, BENEFICIARY_HASH,
+                                { from: exchange, gas: MAX_GAS });
+                        },
+                        MAX_GAS
+                    );
+                });
+        });
+        it("should fail if payment already withdrawn", function() {
+            this.slow(slowDuration);
+
+            const blockDuration = 3;
+            const beneficiary1Hash = web3.sha3("beneficiary1Secret");
+            const beneficiary2Hash = web3.sha3("beneficiary2Secret");
+
+            return instance.hash(EXCHANGE_HASH, beneficiary1Hash, exchange)
+                .then(_compoundHash1 => instance.deposit(_compoundHash1, blockDuration,
+                    { from: payer, gas: MAX_GAS, value: money }))
+                .then(() => instance.hash(EXCHANGE_HASH, beneficiary2Hash, exchange))
+                .then(_compoundHash2 => instance.deposit(_compoundHash2, blockDuration,
+                    { from: payer, gas: MAX_GAS, value: money }))
+                .then(() => instance.withdraw(EXCHANGE_HASH, beneficiary1Hash,
+                    { from: exchange, gas: MAX_GAS }))
+                .then(() => {
+                    return web3.eth.expectedExceptionPromise(
+                        function() {
+                            return instance.withdraw(EXCHANGE_HASH, beneficiary1Hash,
+                                { from: exchange, gas: MAX_GAS });
+                        },
+                        MAX_GAS
+                    );
+                });
+        });
+        it("should increase raised fees", function() {
+            this.slow(slowDuration);
+
+            return instance.hash(EXCHANGE_HASH, BENEFICIARY_HASH, exchange)
+                .then(_compoundHash => instance.deposit(_compoundHash, blockDuration,
+                    { from: payer, gas: MAX_GAS, value: money }))
+                .then(() => instance.withdraw(EXCHANGE_HASH, BENEFICIARY_HASH,
+                    { from: exchange, gas: MAX_GAS }))
+                .then(() => instance.raisedFees())
+                .then(_raisedFees => {
+                    assert.strictEqual(_raisedFees.toNumber(), OWNER_COMMISSION,
+                        "raisedFees not equal to owner commission");
+                });
+        });
+        it("should transfer net amount to exchange", function() {
+            this.slow(slowDuration);
+
+            const money = OWNER_COMMISSION + 10000000;
+
+            let balanceBefore, gasUsed, withdrawTxCost;
+            return web3.eth.getBalancePromise(exchange)
+                .then(_balanceBefore => {
+                    balanceBefore = _balanceBefore;
+                    return instance.hash(EXCHANGE_HASH, BENEFICIARY_HASH, exchange);
+                })
+                .then(_compoundHash => instance.deposit(_compoundHash, blockDuration,
+                    { from: payer, gas: MAX_GAS, value: money }))
+                .then(() => instance.withdraw(EXCHANGE_HASH, BENEFICIARY_HASH,
+                    { from: exchange, gas: MAX_GAS }))
+                .then(txObj => {
+                    gasUsed = txObj.receipt.gasUsed;
+                    return web3.eth.getTransactionPromise(txObj.tx);
+                })
+                .then(tx => {
+                    withdrawTxCost = tx.gasPrice * gasUsed;
+                    return web3.eth.getBalancePromise(exchange);
+                })
+                .then(_balanceAfter => {
+                    const balanceDiff = _balanceAfter.minus(balanceBefore).plus(withdrawTxCost);
+                    const netAmount = money - OWNER_COMMISSION;
+                    assert.strictEqual(balanceDiff.toNumber(), netAmount,
+                        "exchange balance delta not equal to net amount");
+                });
+        });
+        it.skip("should emit LogWithdraw event", function() {
             this.slow(slowDuration);
         });
     });

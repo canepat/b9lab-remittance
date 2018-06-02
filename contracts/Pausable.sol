@@ -33,7 +33,7 @@ contract Pausable is Ownable {
     */
     function pause() onlyOwner whenNotPaused public {
         paused = true;
-        LogPause(msg.sender);
+        emit LogPause(msg.sender);
     }
 
     /**
@@ -41,6 +41,6 @@ contract Pausable is Ownable {
     */
     function unpause() onlyOwner whenPaused public {
         paused = false;
-        LogUnpause(msg.sender);
+        emit LogUnpause(msg.sender);
     }
 }
