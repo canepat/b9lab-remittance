@@ -2,7 +2,7 @@ var Remittance = artifacts.require("./Remittance.sol");
 
 module.exports = function(deployer, network, accounts) {
     let owner = accounts[1];
-    const remittancePercentage = 2;
+    const ownerCommission = web3.toBigNumber(web3.toWei(0.15, 'ether'));
     const maxBlockDuration = 240;
     const gasLimit = 2000000;
 
@@ -10,6 +10,6 @@ module.exports = function(deployer, network, accounts) {
         owner = ""; // TODO: fill
     }
 
-    deployer.deploy(Remittance, remittancePercentage, maxBlockDuration,
+    deployer.deploy(Remittance, ownerCommission, maxBlockDuration,
         { from: owner, gas: gasLimit });
 };

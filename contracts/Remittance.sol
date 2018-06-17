@@ -1,4 +1,4 @@
-pragma solidity ^0.4.13;
+pragma solidity ^0.4.24;
 
 import "./Pausable.sol";
 import "./SafeMath.sol";
@@ -62,7 +62,7 @@ contract Remittance is Pausable {
     function hash(bytes32 hash1, bytes32 hash2, address exchange)
     public constant returns(bytes32 compoundHash)
     {
-        return keccak256(this, hash1, hash2, exchange);
+        return keccak256(abi.encodePacked(this, hash1, hash2, exchange));
     }
 
     function setOwnerCommission(uint256 newOwnerCommission) public whenNotPaused onlyOwner {

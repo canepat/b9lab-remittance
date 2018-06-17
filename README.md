@@ -25,9 +25,9 @@ Of course, for safety, no one should send their passwords to the blockchain in t
 
 ### Implementation:
 The following implementation choices has been made not explicitly required by spec:
-*
-*
-*
+* the withdraw deadline is counted in blocks rather than timestamp
+* the kill switch is implemented as reversable pause switch
+* the owner commission is a configurable parameter initialized in unit tests to a value smaller than the contract deployment cost
 
 ### Limitations:
 The following limitations currently apply:
